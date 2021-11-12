@@ -510,7 +510,7 @@ if __name__ == '__main__':
 
     # t = Track.generate(2.0, hw_ratio=0.7, seed=4125,
     #                    spikeyness=0.2, nb_checkpoints=500)
-
+    #
     # img = t.render()
     # plt.imshow(img)
     # plt.show()

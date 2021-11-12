@@ -1,3 +1,11 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# @File : mag_robot_env.py
+# @Time : 2021/11/3 7:12 下午
+# @Author : Mingxue Cai
+# @Email : im_caimingxue@163.com
+# @github : https://github.com/caimingxue/magnetic-robot-simulation
+# @notice ：
 import os
 import json
 import warnings
@@ -29,7 +37,7 @@ class LineFollowerEnv(gym.Env):
     SUPPORTED_OBSV_TYPE = ["points_visible", "points_latch", "points_latch_bool", "camera"]
 
     def __init__(self, gui=False, nb_cam_pts=8, sub_steps=10, sim_time_step=1 / 214.,
-                 max_track_err=0.3, power_limit=0.4, max_time=60, config=None, randomize=True, obsv_type="points_latch",
+                 max_track_err=0.3, power_limit=0.4, max_time=60, config=None, randomize=True, obsv_type="camera",
                  track=None, track_render_params=None):
         """
         Create environment.
@@ -104,7 +112,7 @@ class LineFollowerEnv(gym.Env):
         self.pb_client: p = BulletClient(connection_mode=p.GUI if self.gui else p.DIRECT)
         self.pb_client.setPhysicsEngineParameter(enableFileCaching=0)
         p.resetDebugVisualizerCamera(cameraDistance=2.6, cameraYaw=45, cameraPitch=-45, cameraTargetPosition=[0, 0, 0])
-        p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
+        p.configureDebugVisualizer(p.COV_ENABLE_GUI, 1)
 
         self.np_random = None
         self.step_counter = 0
