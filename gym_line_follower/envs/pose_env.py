@@ -26,19 +26,19 @@ class PoseEnv(gym.Env):
     def __init__(self):
         # state space: x, y, theta
         self.observation_space = spaces.Box(
-            low=np.array([0, 0., -np.pi]),
-            high=np.array([500., 500., np.pi]),
+            low=np.array([-4, -4., -np.pi]),
+            high=np.array([4., 4., np.pi]),
             dtype=np.float32
         )
         # action space: v, w
         self.action_space = spaces.Box(
-            low=np.array([-5, -1]),
-            high=np.array([5, 1]),
+            low=np.array([-0.5, -0.1]),
+            high=np.array([0.5, 0.1]),
             dtype=np.float32
         )
         self.state = None   # current state
 
-        self.dt = 0.05
+        self.dt = 0.01
         self.pre_dist = 0.
         self.dist = 0.
         self.delta_dist = 0.
@@ -49,9 +49,9 @@ class PoseEnv(gym.Env):
         self.seed()
 
     def step(self, action):
-        assert self.action_space.contains(action), "%r (%s) invalid" % (action, type(action))
-        assert self.observation_space.contains(self.state), "%r (%s) invalid" % (self.state, type(self.state))
-        assert self.observation_space.contains(self.target), "%r (%s) invalid" % (self.target, type(self.target))
+        # assert self.action_space.contains(action), "%r (%s) invalid" % (action, type(action))
+        # assert self.observation_space.contains(self.state), "%r (%s) invalid" % (self.state, type(self.state))
+        # assert self.observation_space.contains(self.target), "%r (%s) invalid" % (self.target, type(self.target))
 
         x_diff = self.target[0] - self.state[0]
         y_diff = self.target[1] - self.state[1]
@@ -105,8 +105,8 @@ class PoseEnv(gym.Env):
             else:
                 self.state = self.observation_space.sample()
         # give a random goal pose
-        self.x_goal = 500 * random()
-        self.y_goal = 500 * random()
+        self.x_goal = 4 * random()
+        self.y_goal = 4 * random()
         self.theta_goal = 2 * np.pi * random() - np.pi
         self.target = np.array([self.x_goal, self.y_goal, self.theta_goal])
 
@@ -119,23 +119,37 @@ class PoseEnv(gym.Env):
         return self.state
 
     # render()绘制可视化环境的部分都写在这里，gym中的这个color，（x, y, z）中的每一位应该取[0, 1]之间的值
-    def render(self, mode='rgb_array', close=False):
-        from gym.envs.classic_control import rendering
-        # #向右为x轴正方向，向上为y轴正方向，左下角为坐标原点
-        # self.viewer = rendering.Viewer(400, 400)    # 初始化一张画布
-        # # length, width, 默认中心画在原点
+    def render(self, mode='human', close=False):
         if self.viewer is None:
+            from gym.envs.classic_control import rendering
+
             self.viewer = rendering.Viewer(500, 500)
+            self.viewer.set_bounds(-5, 5, -5, 5)
+            # length, width
+            self.magrob_length = 0.6
+            self.magrob_width = 0.4
+            magrob = rendering.make_capsule(self.magrob_length, self.magrob_width)
+            magrob.set_color(0.8, 0.3, 0.3)
+            # 默认中心不在原点
+            self.magrob_transform = rendering.Transform(translation=(-self.magrob_length/2, 0))
+            magrob.add_attr(self.magrob_transform)
+            self.viewer.add_geom(magrob)
+            # Target Setting
+            magrob_target = rendering.make_capsule(self.magrob_length, self.magrob_width)
+            magrob_target.set_color(0.0, 0.0, 0.0)
+            self.magrob_transform_target = rendering.Transform(translation=(self.target[0]-self.magrob_length/2, self.target[1]))
+            magrob_target.add_attr(self.magrob_transform_target)
+            self.viewer.add_geom(magrob_target)
 
-        self.viewer.draw_circle(
-            20, 20, True, color=(0, 1, 0)
-        ).add_attr(rendering.Transform((self.state[0], self.state[1])))
+            axle = rendering.make_circle(0.1)
+            axle.set_color(0, 0, 0)
+            self.viewer.add_geom(axle)
 
-        self.viewer.draw_circle(
-            20, 20, True, color=(0, 0, 1)
-        ).add_attr(rendering.Transform((self.target[0], self.target[1])))
+        self.magrob_transform.set_translation(self.state[0]-self.magrob_length/2, self.state[1])
+        self.magrob_transform.set_rotation(self.state[2])
 
-        return self.viewer.render(return_rgb_array=mode == 'rgb_array')
+
+        return self.viewer.render(return_rgb_array=mode == 'human')
 
     def close(self):
         if self.viewer:
@@ -156,7 +170,7 @@ class PoseEnv(gym.Env):
         else:
             R_punish = 0
 
-        if self.dist < 5:
+        if self.dist < 0.01:
             Rr = 20000
         else:
             Rr = 0.
@@ -169,10 +183,10 @@ class PoseEnv(gym.Env):
 
     def get_done(self):
         ...
-        if self.dist < 5:
+        if self.dist < 0.01:
             done = True
             logger.warning("################## Success Reach#################")
-        elif self.step_num > 10000:
+        elif self.step_num > 5000:
             done = True
             logger.warning("################## Step Num Limits #################")
         elif self.out_border:
@@ -210,14 +224,14 @@ if __name__ == '__main__':
 
     # Kp_rho = 9
     # Kp_alpha = 15
-    # Kp_beta = -3
+    # Kp_beta = 3
     # from stable_baselines3.common.env_checker import check_env
     # check_env(env)
     # action = [0.1, 0.1]
     # while 1:
     #     env.step(action)
     #     env.render()
-    #     v = Kp_rho * env.distance
+    #     v = Kp_rho * env.dist
     #     w = Kp_alpha * env.alpha + Kp_beta * env.beta
     #     action = [v, w]
     #     print("====================================")

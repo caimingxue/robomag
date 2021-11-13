@@ -9,21 +9,19 @@
 
 import argparse
 import os
-import pprint
 
 import gym
-import gym_line_follower  # to register environment
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from tianshou.data import Collector, VectorReplayBuffer
 from tianshou.env import DummyVectorEnv
-from tianshou.policy import ImitationPolicy, SACPolicy
+from tianshou.policy import SACPolicy
 from tianshou.trainer import offpolicy_trainer
 from tianshou.utils import TensorboardLogger
 from tianshou.utils.net.common import Net
-from tianshou.utils.net.continuous import Actor, ActorProb, Critic
+from tianshou.utils.net.continuous import ActorProb, Critic
 
 
 def get_args():
@@ -183,7 +181,7 @@ def test_sac(args=get_args()):
 
 
     if __name__ == '__main__':
-        from gym_line_follower.envs.line_follower_env import LineFollowerEnv, LineFollowerCameraEnv
+        from gym_line_follower.envs.line_follower_env import LineFollowerEnv
         # pprint.pprint(result)
         # Let's watch its performance!
         env = LineFollowerEnv(gui=True)

@@ -40,7 +40,9 @@ class PoseEnv(gym.Env):
         self.dt = 0.01
         self.pre_dis = 0
 
+
         self.viewer = None
+
         self.out_border = False
         self.reset()
         self.seed()
@@ -110,22 +112,30 @@ class PoseEnv(gym.Env):
 
     # render()绘制可视化环境的部分都写在这里，gym中的这个color，（x, y, z）中的每一位应该取[0, 1]之间的值
     def render(self, mode='rgb_array', close=False):
-        from gym.envs.classic_control import rendering
-        # #向右为x轴正方向，向上为y轴正方向，左下角为坐标原点
-        # self.viewer = rendering.Viewer(400, 400)    # 初始化一张画布
-        # # length, width, 默认中心画在原点
         if self.viewer is None:
+            from gym.envs.classic_control import rendering
+
             self.viewer = rendering.Viewer(500, 500)
+            self.viewer.set_bounds(-2.2, 2.2, -2.2, 2.2)
+            rod = rendering.make_capsule(1, 0.2)
+            rod.set_color(0.8, 0.3, 0.3)
+            self.pole_transform = rendering.Transform()
+            rod.add_attr(self.pole_transform)
+            self.viewer.add_geom(rod)
+            axle = rendering.make_circle(0.05)
+            axle.set_color(0, 0, 0)
+            self.viewer.add_geom(axle)
+        #     fname = path.join(path.dirname(__file__), "clockwise.png")
+        #     self.img = rendering.Image(fname, 1.0, 1.0)
+        #     self.imgtrans = rendering.Transform()
+        #     self.img.add_attr(self.imgtrans)
+        #
+        # self.viewer.add_onetime(self.img)
+        self.pole_transform.set_rotation(self.state[0] + np.pi / 2)
+        self.pole_transform.set_translation(1, 1)
 
-        self.viewer.draw_circle(
-            20, 20, True, color=(0, 1, 0)
-        ).add_attr(rendering.Transform((self.state[0], self.state[1])))
 
-        self.viewer.draw_circle(
-            20, 20, True, color=(0, 0, 1)
-        ).add_attr(rendering.Transform((self.target[0], self.target[1])))
-
-        return self.viewer.render(return_rgb_array=mode == 'rgb_array')
+        return self.viewer.render(return_rgb_array=mode == "rgb_array")
 
     def close(self):
         if self.viewer:
@@ -178,19 +188,19 @@ if __name__ == '__main__':
     env = PoseEnv()
     # from stable_baselines3.common.env_checker import check_env
     # check_env(env)
-    model = SAC("MlpPolicy", env, verbose=1)
-    model.learn(total_timesteps=50000)
-    model.save("./pose_track.pkl")
+    # model = SAC("MlpPolicy", env, verbose=1)
+    # model.learn(total_timesteps=50000)
+    # model.save("./pose_track.pkl")
 
     # model = SAC.load("./pose_track.pkl")
 
     obs = env.reset()
     for i in range(100000):
-        action, _states = model.predict(obs, deterministic=True)
+        action = [0.1,0.3]
         obs, reward, done, info = env.step(action)
         env.render()
-        if done:
-            obs = env.reset()
+        # if done:
+        #     obs = env.reset()
 
     env.close()
 
