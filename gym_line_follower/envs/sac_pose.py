@@ -29,7 +29,7 @@ from tianshou.utils.net.continuous import Actor, ActorProb, Critic
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--task', type=str, default='PoseEnv-v0')
-    parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--seed', type=int, default=123456)
     parser.add_argument('--buffer-size', type=int, default=20000)
     parser.add_argument('--actor-lr', type=float, default=1e-3)
     parser.add_argument('--critic-lr', type=float, default=1e-3)
@@ -39,7 +39,7 @@ def get_args():
     parser.add_argument('--alpha', type=float, default=0.2)
     parser.add_argument('--auto-alpha', type=int, default=1)
     parser.add_argument('--alpha-lr', type=float, default=3e-4)
-    parser.add_argument('--epoch', type=int, default=5)
+    parser.add_argument('--epoch', type=int, default=10)
     parser.add_argument('--step-per-epoch', type=int, default=24000)
     parser.add_argument('--il-step-per-epoch', type=int, default=500)
     parser.add_argument('--step-per-collect', type=int, default=10)
@@ -159,7 +159,7 @@ def test_sac(args=get_args()):
         torch.save(policy.state_dict(), os.path.join(log_path, 'policy.pth'))
 
     def stop_fn(mean_rewards):
-        return mean_rewards >= 200
+        return mean_rewards >= 500000
 
     # trainer
     result = offpolicy_trainer(
