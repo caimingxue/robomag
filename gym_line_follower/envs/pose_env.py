@@ -17,18 +17,15 @@ from loguru import logger
 
 
 class PoseEnv(gym.Env):
-    metadata = {
-        'render.modes': ['human', 'rgb_array'],
-        'video.frames_per_second': 2
-    }
+    metadata = {"render.modes": ["human", "rgb_array"], "video.frames_per_second": 30}
 
     # 将会初始化动作空间与状态空间，便于强化学习算法在给定的状态空间中搜索合适的动作
     # 环境中会用的全局变量可以声明为类（self.）的变量
     def __init__(self):
-        # state space: x, y, theta
+        # state space: x_diff, y_diff, theta_diff
         self.observation_space = spaces.Box(
-            low=np.array([-4, -4., -np.pi]),
-            high=np.array([4., 4., np.pi]),
+            low=np.array([-8, -8., -np.pi]),
+            high=np.array([8., 8., np.pi]),
             dtype=np.float32
         )
         # action space: v, w
@@ -37,7 +34,15 @@ class PoseEnv(gym.Env):
             high=np.array([5, np.pi]),
             dtype=np.float32
         )
-        self.state = None   # current state
+
+        self.robot_pose = spaces.Box(
+            low=np.array([-4, -4., -np.pi]),
+            high=np.array([4., 4., np.pi]),
+            dtype=np.float32
+        )
+
+        self.state = None
+        self.current_pose = None
 
         self.map_size = np.array([5, 5])
         self.max_dist_error = np.sqrt(np.sum(self.map_size ** 2))
@@ -53,18 +58,21 @@ class PoseEnv(gym.Env):
         self.seed()
 
     def step(self, action):
-        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         assert self.action_space.contains(action), "%r (%s) invalid" % (action, type(action))
         assert self.observation_space.contains(self.state), "%r (%s) invalid" % (self.state, type(self.state))
-        assert self.observation_space.contains(self.target), "%r (%s) invalid" % (self.target, type(self.target))
         # Bot position updated here so it must be first!
-        next_state = self.update_state(action)
+        next_pose = self.update_state(action)
         # 在这里做一下限定，如果下一个动作导致智能体越过了环境边界（即不在状态空间中），则无视这个动作
-        if self.observation_space.contains(next_state):
-            self.state = next_state
+        if self.robot_pose.contains(next_pose):
+            self.current_pose = next_pose
         else:
-            print("*********************************")
             self.out_border = True
+
+        self.x_diff = self.target_pose[0] - self.current_pose[0]
+        self.y_diff = self.target_pose[1] - self.current_pose[1]
+        self.theta_diff = self.angle_normalize(self.target_pose[2] - self.current_pose[2])
+
+        self.state = np.array([self.x_diff, self.y_diff, self.theta_diff])
 
         # reward = 30 * np.exp(1 - self.dist_error / self.max_dist_error) - 20 * abs(self.alpha) - 1 * abs(self.beta)
         assert abs(self.alpha) <= np.pi
@@ -78,58 +86,57 @@ class PoseEnv(gym.Env):
         # reward_ctrl = -np.square(action).sum()
         # reward = 3 * reward_dist + reward_ctrl
 
-        reward = -1 * (abs(self.state[0] - self.target[0]) +
-                       abs(self.state[1] - self.target[1]) +
-                       5 * abs(self.state[2] - self.target[2]))
+        self.dist_error = np.sqrt(self.state[0]**2 + self.state[1]**2)
+
+        reward = -5 * self.dist_error**2
         # # Time penalty
         # reward -= 1
 
         done = False
         if self.dist_error < 0.02:
-            reward = 100
             done = True
             logger.warning("################## REACH SUCCESSFULLY #################")
-        elif self.step_num > 5000:
-            reward = -100.
+        elif self.step_num > 10000:
             done = True
-            logger.warning("=================== STEP NUM LIMITS =======================")
+            logger.error("=================== STEP NUM LIMITS =======================")
         elif self.out_border:
-            reward = -100.
             done = True
             logger.error("************ OUT OF BORDER *****************")
         else:
             done = False
 
-        self.delta_dist_error = self.pre_dist_error - self.dist_error
-        self.pre_dist_error = self.dist_error
+        # self.delta_dist_error = self.pre_dist_error - self.dist_error
+        # self.pre_dist_error = self.dist_error
         self.step_num += 1
 
-        info = {"action": action, "state": self.state, "reward": reward, "distance": self.dist_error, "done": done}
+        info = {"action": action, "state": self.state, "reward": reward, "done": done}
         print(info)
 
         return self.state, reward, done, info
 
     # 用于在每轮开始之前重置智能体的状态，把环境恢复到最开始
     # 在训练的时候，可以不指定start_state，随机选择初始状态，以便能尽可能全的采集到的环境中所有状态的数据反馈
-    def reset(self, start_state=None):
-        print("*************&&&&&&&&&&&&&****************")
-        if start_state==None:
-            self.state = self.observation_space.sample()
-            # logger.info("init state: {}", self.state)
+    def reset(self, start_pose=None):
+        if start_pose == None:
+            self.current_pose = self.robot_pose.sample()
         else: # 在训练完成测试的时候，可以根据需要指定从某个状态开始
-            if self.observation_space.contains(start_state):
-                self.state = start_state
-            else:
-                self.state = self.observation_space.sample()
+            if not self.robot_pose.contains(start_pose):
+                self.current_pose = start_pose
+
         # give a random goal pose
-        self.x_goal = 4 * random()
-        self.y_goal = 4 * random()
-        self.theta_goal = 2 * np.pi * random() - np.pi
-        self.target = np.array([self.x_goal, self.y_goal, self.theta_goal])
+        self.target_pose = self.robot_pose.sample()
+
+        self.x_diff = self.target_pose[0] - self.current_pose[0]
+        self.y_diff = self.target_pose[1] - self.current_pose[1]
+        self.theta_diff = self.angle_normalize(self.target_pose[2] - self.current_pose[2])
 
         # clear
         self.step_num = 0
         self.out_border = False
+
+        self.state = np.array([self.x_diff, self.y_diff, self.theta_diff])
+
+        assert self.observation_space.contains(self.state), "%r (%s) invalid" % (self.state, type(self.state))
 
         return self.state
 
@@ -152,8 +159,8 @@ class PoseEnv(gym.Env):
             # Target Setting
             magrob_target = rendering.make_capsule(self.magrob_length, self.magrob_width)
             magrob_target.set_color(0.0, 0.0, 0.0)
-            self.magrob_transform_target = rendering.Transform(translation=(self.target[0]-self.magrob_length/2, self.target[1]),
-                                                               rotation=self.target[2])
+            self.magrob_transform_target = rendering.Transform(translation=(-self.magrob_length/2,
+                                                                            0))
             magrob_target.add_attr(self.magrob_transform_target)
             self.viewer.add_geom(magrob_target)
 
@@ -161,8 +168,15 @@ class PoseEnv(gym.Env):
             axle.set_color(0, 0, 0)
             self.viewer.add_geom(axle)
 
-        self.magrob_transform.set_translation(self.state[0]-self.magrob_length/2, self.state[1])
-        self.magrob_transform.set_rotation(self.state[2])
+        self.magrob_transform.set_translation(self.current_pose[0]-self.magrob_length/2,
+                                              self.current_pose[1])
+        self.magrob_transform.set_rotation(self.current_pose[2])
+
+        self.magrob_transform_target.set_translation(self.target_pose[0] - self.magrob_length / 2,
+                                              self.target_pose[1])
+        self.magrob_transform_target.set_rotation(self.target_pose[2])
+
+        print(self.target_pose, self.current_pose)
 
 
         return self.viewer.render(return_rgb_array=mode == 'human')
@@ -172,14 +186,11 @@ class PoseEnv(gym.Env):
             self.viewer.close()
 
     def update_state(self, action):
-        x_diff = self.target[0] - self.state[0]
-        y_diff = self.target[1] - self.state[1]
-        self.dist_error = np.hypot(x_diff, y_diff)
 
-        current_yaw = self.state[2]
-        self.alpha = self.angle_normalize(np.arctan2(y_diff, x_diff) - current_yaw)
+        current_yaw = self.current_pose[2]
+        self.alpha = self.angle_normalize(np.arctan2(self.state[1], self.state[0]+0.0001) - current_yaw)
 
-        target_yaw = self.target[2]
+        target_yaw = self.target_pose[2]
         self.beta = self.angle_normalize(target_yaw - current_yaw - self.alpha)
 
         vel = action[0]
@@ -188,11 +199,13 @@ class PoseEnv(gym.Env):
         ## 保持只前进，不后退
         if self.alpha > np.pi / 2 or self.alpha < -np.pi / 2:
             vel = -vel
-        self.next_state = np.zeros_like(self.state)
-        self.next_state[2] = self.angle_normalize(current_yaw + angular_vel * self.dt)
-        self.next_state[0] = self.state[0] + vel * np.cos(self.next_state[2]) * self.dt
-        self.next_state[1] = self.state[1] + vel * np.sin(self.next_state[2]) * self.dt
-        return self.next_state
+
+        self.next_pose = np.zeros_like(self.current_pose)
+        self.next_pose[2] = self.angle_normalize(current_yaw + angular_vel * self.dt)
+        self.next_pose[0] = self.current_pose[0] + vel * np.cos(self.next_pose[2]) * self.dt
+        self.next_pose[1] = self.current_pose[1] + vel * np.sin(self.next_pose[2]) * self.dt
+
+        return self.next_pose
         # self.state[0] = self.state[0] + vel * np.cos(self.state[2]) * self.dt
         # self.state[1] = self.state[1] + vel * np.sin(self.state[2]) * self.dt
         # self.state[2] = self.angle_normalize(current_yaw + angular_vel * self.dt)
@@ -234,23 +247,23 @@ class PoseEnv(gym.Env):
 if __name__ == '__main__':
 
     import gym
-    from stable_baselines3 import SAC
+    from stable_baselines3 import PPO
     env = PoseEnv()
-    # from stable_baselines3.common.env_checker import check_env
-    # check_env(env)
-    # model = SAC("MlpPolicy", env, verbose=1)
-    # model.learn(total_timesteps=10000)
-    # model.save("./pose_track.pkl")
-    #
-    # # model = SAC.load("./pose_track.pkl")
+    from stable_baselines3.common.env_checker import check_env
+    check_env(env)
+    model = PPO("MlpPolicy", env, verbose=1)
+    model.learn(total_timesteps=100000)
+    model.save("./pose_track.pkl")
+
+    # model = PPO.load("./pose_track.pkl")
 
     obs = env.reset()
     for i in range(100000):
-        # action, _states = model.predict(obs, deterministic=True)
-        # obs, reward, done, info = env.step(action)
+        action, _states = model.predict(obs, deterministic=True)
+        obs, reward, done, info = env.step(action)
         env.render()
-        # if done:
-        #     obs = env.reset()
+        if done:
+            obs = env.reset()
 
     env.close()
 
