@@ -13,6 +13,7 @@ import pprint
 
 import gym
 from pose_env import PoseEnv
+from dubins_gym import DubinGym
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -28,7 +29,7 @@ from tianshou.utils.net.continuous import Actor, ActorProb, Critic
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--task', type=str, default='PoseEnv-v0')
+    parser.add_argument('--task', type=str, default='Reacher-v2')
     parser.add_argument('--seed', type=int, default=123456)
     parser.add_argument('--buffer-size', type=int, default=20000)
     parser.add_argument('--actor-lr', type=float, default=1e-3)
@@ -39,7 +40,7 @@ def get_args():
     parser.add_argument('--alpha', type=float, default=0.2)
     parser.add_argument('--auto-alpha', type=int, default=1)
     parser.add_argument('--alpha-lr', type=float, default=3e-4)
-    parser.add_argument('--epoch', type=int, default=10)
+    parser.add_argument('--epoch', type=int, default=5)
     parser.add_argument('--step-per-epoch', type=int, default=24000)
     parser.add_argument('--il-step-per-epoch', type=int, default=500)
     parser.add_argument('--step-per-collect', type=int, default=10)
@@ -68,6 +69,9 @@ def test_sac(args=get_args()):
     # env = gym.make(args.task)
     # if args.task == 'LineFollower-v0':
     #     env.spec.reward_threshold = 500
+    # start_point = [0., 0., 1.57]
+    # target_point = [3., 5., 0.8]
+    # env = DubinGym(start_point, target_point)
     env = PoseEnv()
     args.state_shape = env.observation_space.shape or env.observation_space.n
     args.action_shape = env.action_space.shape or env.action_space.n
@@ -159,7 +163,7 @@ def test_sac(args=get_args()):
         torch.save(policy.state_dict(), os.path.join(log_path, 'policy.pth'))
 
     def stop_fn(mean_rewards):
-        return mean_rewards >= 500000
+        return mean_rewards >= 500
 
     # trainer
     result = offpolicy_trainer(
@@ -183,6 +187,9 @@ def test_sac(args=get_args()):
         from gym_line_follower.envs.line_follower_env import LineFollowerEnv, LineFollowerCameraEnv
         # pprint.pprint(result)
         # Let's watch its performance!
+        # start_point = [0., 0., 1.57]
+        # target_point = [3., 5., 0.8]
+        # env = DubinGym(start_point, target_point)
         env = PoseEnv()
         policy.eval()
         # policy.load_state_dict(torch.load("/Users/cmx/github_project/gym-line-follower/tianshou/log/LineFollower-v0/sac/policy.pth"))

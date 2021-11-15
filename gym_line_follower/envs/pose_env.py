@@ -12,6 +12,7 @@ import numpy as np
 from random import random
 from gym.envs.classic_control import rendering
 import time
+import math
 from loguru import logger
 
 
@@ -52,7 +53,7 @@ class PoseEnv(gym.Env):
         self.seed()
 
     def step(self, action):
-
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         assert self.action_space.contains(action), "%r (%s) invalid" % (action, type(action))
         assert self.observation_space.contains(self.state), "%r (%s) invalid" % (self.state, type(self.state))
         assert self.observation_space.contains(self.target), "%r (%s) invalid" % (self.target, type(self.target))
@@ -62,21 +63,30 @@ class PoseEnv(gym.Env):
         if self.observation_space.contains(next_state):
             self.state = next_state
         else:
+            print("*********************************")
             self.out_border = True
 
         # reward = 30 * np.exp(1 - self.dist_error / self.max_dist_error) - 20 * abs(self.alpha) - 1 * abs(self.beta)
         assert abs(self.alpha) <= np.pi
         assert abs(self.beta) <= np.pi
-        reward = 6 * np.exp(1 - self.dist_error / self.max_dist_error) \
-                 + 10 * np.exp(1 - abs(self.alpha) / np.pi) + 1 * np.exp(1 - abs(self.beta) / np.pi) \
+        # reward = 10 * np.exp(1 - self.dist_error / self.max_dist_error) \
+        #          + 10 * np.exp(1 - abs(self.alpha) / np.pi) + 1 * np.exp(1 - abs(self.beta) / np.pi) \
                  # + np.exp(1 - abs(action[0]) / 5) + 1 * np.exp(1 - abs(action[1]) / np.pi)
 
+        # reward = - 3 * self.dist_error**2 - 4 * abs(self.alpha)**2
+        # reward_dist = -np.linalg.norm(self.dist_error)
+        # reward_ctrl = -np.square(action).sum()
+        # reward = 3 * reward_dist + reward_ctrl
+
+        reward = -1 * (abs(self.state[0] - self.target[0]) +
+                       abs(self.state[1] - self.target[1]) +
+                       5 * abs(self.state[2] - self.target[2]))
         # # Time penalty
-        # reward -= 0.2
+        # reward -= 1
 
         done = False
         if self.dist_error < 0.02:
-            reward = 100.
+            reward = 100
             done = True
             logger.warning("################## REACH SUCCESSFULLY #################")
         elif self.step_num > 5000:
@@ -94,14 +104,15 @@ class PoseEnv(gym.Env):
         self.pre_dist_error = self.dist_error
         self.step_num += 1
 
-        info = {"action": action, "reward": reward, "distance": self.dist_error, "done": done}
-        # print(info)
+        info = {"action": action, "state": self.state, "reward": reward, "distance": self.dist_error, "done": done}
+        print(info)
 
         return self.state, reward, done, info
 
     # 用于在每轮开始之前重置智能体的状态，把环境恢复到最开始
     # 在训练的时候，可以不指定start_state，随机选择初始状态，以便能尽可能全的采集到的环境中所有状态的数据反馈
     def reset(self, start_state=None):
+        print("*************&&&&&&&&&&&&&****************")
         if start_state==None:
             self.state = self.observation_space.sample()
             # logger.info("init state: {}", self.state)
@@ -141,7 +152,8 @@ class PoseEnv(gym.Env):
             # Target Setting
             magrob_target = rendering.make_capsule(self.magrob_length, self.magrob_width)
             magrob_target.set_color(0.0, 0.0, 0.0)
-            self.magrob_transform_target = rendering.Transform(translation=(self.target[0]-self.magrob_length/2, self.target[1]))
+            self.magrob_transform_target = rendering.Transform(translation=(self.target[0]-self.magrob_length/2, self.target[1]),
+                                                               rotation=self.target[2])
             magrob_target.add_attr(self.magrob_transform_target)
             self.viewer.add_geom(magrob_target)
 
@@ -173,6 +185,7 @@ class PoseEnv(gym.Env):
         vel = action[0]
         angular_vel = action[1]
 
+        ## 保持只前进，不后退
         if self.alpha > np.pi / 2 or self.alpha < -np.pi / 2:
             vel = -vel
         self.next_state = np.zeros_like(self.state)
@@ -180,6 +193,11 @@ class PoseEnv(gym.Env):
         self.next_state[0] = self.state[0] + vel * np.cos(self.next_state[2]) * self.dt
         self.next_state[1] = self.state[1] + vel * np.sin(self.next_state[2]) * self.dt
         return self.next_state
+        # self.state[0] = self.state[0] + vel * np.cos(self.state[2]) * self.dt
+        # self.state[1] = self.state[1] + vel * np.sin(self.state[2]) * self.dt
+        # self.state[2] = self.angle_normalize(current_yaw + angular_vel * self.dt)
+        #
+        # return self.state
 
         # throttle = a[0]
         # steer = a[1]
@@ -218,45 +236,23 @@ if __name__ == '__main__':
     import gym
     from stable_baselines3 import SAC
     env = PoseEnv()
-    from stable_baselines3.common.env_checker import check_env
-    check_env(env)
-    model = SAC("MlpPolicy", env, verbose=1)
-    model.learn(total_timesteps=10000)
-    model.save("./pose_track.pkl")
-
-    # model = SAC.load("./pose_track.pkl")
+    # from stable_baselines3.common.env_checker import check_env
+    # check_env(env)
+    # model = SAC("MlpPolicy", env, verbose=1)
+    # model.learn(total_timesteps=10000)
+    # model.save("./pose_track.pkl")
+    #
+    # # model = SAC.load("./pose_track.pkl")
 
     obs = env.reset()
     for i in range(100000):
-        action, _states = model.predict(obs, deterministic=True)
-        obs, reward, done, info = env.step(action)
+        # action, _states = model.predict(obs, deterministic=True)
+        # obs, reward, done, info = env.step(action)
         env.render()
-        if done:
-            obs = env.reset()
+        # if done:
+        #     obs = env.reset()
 
     env.close()
 
-    # Kp_rho = 9
-    # Kp_alpha = 12
-    # Kp_beta = -1
-    # from stable_baselines3.common.env_checker import check_env
-    # check_env(env)
-    # action = [0.3, 0.3]
-    # while 1:
-    #     env.step(action)
-    #     env.render()
-    #     v = Kp_rho * env.dist_error
-    #     w = Kp_alpha * env.alpha + Kp_beta * env.beta
-    #
-    #     # if v > 5:
-    #     #     v = 5
-    #     # if v < -5:
-    #     #     v = -5
-    #     # if w > np.pi:
-    #     #     w = np.pi
-    #     # if w < -np.pi:
-    #     #     w = -np.pi
-    #     action = [v, w]
-    #     print("====================================")
-    #     time.sleep(0.01)
+
 
