@@ -24,8 +24,8 @@ class PoseEnv(gym.Env):
     def __init__(self):
         # state space: x_diff, y_diff, theta_diff
         self.observation_space = spaces.Box(
-            low=np.array([-8, -8., -np.pi]),
-            high=np.array([8., 8., np.pi]),
+            low=np.array([0, -np.pi]),
+            high=np.array([8 * np.sqrt(2), np.pi]),
             dtype=np.float32
         )
         # action space: v, w
@@ -44,13 +44,13 @@ class PoseEnv(gym.Env):
         self.state = None
         self.current_pose = None
 
-        self.map_size = np.array([5, 5])
-        self.max_dist_error = np.sqrt(np.sum(self.map_size ** 2))
+        # self.map_size = np.array([5, 5])
+        # self.max_dist_error = np.sqrt(np.sum(self.map_size ** 2))
 
-        self.dt = 0.01
-        self.pre_dist_error = 0.
-        self.dist_error = 0.
-        self.delta_dist_error = 0.
+        self.dt = 0.05
+        # self.pre_dist_error = 0.
+        # self.dist_error = 0.
+        # self.delta_dist_error = 0.
 
         self.viewer = None
         self.out_border = False
@@ -70,9 +70,11 @@ class PoseEnv(gym.Env):
 
         self.x_diff = self.target_pose[0] - self.current_pose[0]
         self.y_diff = self.target_pose[1] - self.current_pose[1]
-        self.theta_diff = self.angle_normalize(self.target_pose[2] - self.current_pose[2])
 
-        self.state = np.array([self.x_diff, self.y_diff, self.theta_diff])
+        self.dist_error = np.sqrt(self.x_diff**2 + self.y_diff**2)
+
+        current_yaw = self.current_pose[2]
+        self.alpha = self.angle_normalize(np.arctan2(self.y_diff, self.x_diff + 0.0001) - current_yaw)
 
         # reward = 30 * np.exp(1 - self.dist_error / self.max_dist_error) - 20 * abs(self.alpha) - 1 * abs(self.beta)
         assert abs(self.alpha) <= np.pi
@@ -86,9 +88,7 @@ class PoseEnv(gym.Env):
         # reward_ctrl = -np.square(action).sum()
         # reward = 3 * reward_dist + reward_ctrl
 
-        self.dist_error = np.sqrt(self.state[0]**2 + self.state[1]**2)
-
-        reward = -5 * self.dist_error**2
+        reward = -5 * self.dist_error**3 - 2 * abs(self.alpha)
         # # Time penalty
         # reward -= 1
 
@@ -101,6 +101,7 @@ class PoseEnv(gym.Env):
             logger.error("=================== STEP NUM LIMITS =======================")
         elif self.out_border:
             done = True
+            reward -= 1000
             logger.error("************ OUT OF BORDER *****************")
         else:
             done = False
@@ -111,6 +112,8 @@ class PoseEnv(gym.Env):
 
         info = {"action": action, "state": self.state, "reward": reward, "done": done}
         print(info)
+
+        self.state = np.array([self.dist_error,  self.alpha], dtype=np.float32)
 
         return self.state, reward, done, info
 
@@ -130,11 +133,16 @@ class PoseEnv(gym.Env):
         self.y_diff = self.target_pose[1] - self.current_pose[1]
         self.theta_diff = self.angle_normalize(self.target_pose[2] - self.current_pose[2])
 
+        self.dist_error = np.sqrt(self.x_diff ** 2 + self.y_diff ** 2)
+
+        current_yaw = self.current_pose[2]
+        self.alpha = self.angle_normalize(np.arctan2(self.y_diff, self.x_diff + 0.0001) - current_yaw)
+
         # clear
         self.step_num = 0
         self.out_border = False
 
-        self.state = np.array([self.x_diff, self.y_diff, self.theta_diff])
+        self.state = np.array([self.dist_error,  self.alpha], dtype=np.float32)
 
         assert self.observation_space.contains(self.state), "%r (%s) invalid" % (self.state, type(self.state))
 
@@ -156,6 +164,13 @@ class PoseEnv(gym.Env):
             self.magrob_transform = rendering.Transform(translation=(-self.magrob_length/2, 0))
             magrob.add_attr(self.magrob_transform)
             self.viewer.add_geom(magrob)
+
+            magrob_axle = rendering.make_circle(0.1)
+            magrob_axle.set_color(0, 0, 0)
+            self.magrob_transform_point = rendering.Transform(translation=(0, 0))
+            magrob_axle.add_attr(self.magrob_transform_point)
+            self.viewer.add_geom(magrob_axle)
+
             # Target Setting
             magrob_target = rendering.make_capsule(self.magrob_length, self.magrob_width)
             magrob_target.set_color(0.0, 0.0, 0.0)
@@ -168,15 +183,16 @@ class PoseEnv(gym.Env):
             axle.set_color(0, 0, 0)
             self.viewer.add_geom(axle)
 
+
         self.magrob_transform.set_translation(self.current_pose[0]-self.magrob_length/2,
                                               self.current_pose[1])
         self.magrob_transform.set_rotation(self.current_pose[2])
 
+        self.magrob_transform_point.set_translation(self.current_pose[0], self.current_pose[1])
+
         self.magrob_transform_target.set_translation(self.target_pose[0] - self.magrob_length / 2,
                                               self.target_pose[1])
         self.magrob_transform_target.set_rotation(self.target_pose[2])
-
-        print(self.target_pose, self.current_pose)
 
 
         return self.viewer.render(return_rgb_array=mode == 'human')
@@ -204,7 +220,6 @@ class PoseEnv(gym.Env):
         self.next_pose[2] = self.angle_normalize(current_yaw + angular_vel * self.dt)
         self.next_pose[0] = self.current_pose[0] + vel * np.cos(self.next_pose[2]) * self.dt
         self.next_pose[1] = self.current_pose[1] + vel * np.sin(self.next_pose[2]) * self.dt
-
         return self.next_pose
         # self.state[0] = self.state[0] + vel * np.cos(self.state[2]) * self.dt
         # self.state[1] = self.state[1] + vel * np.sin(self.state[2]) * self.dt
@@ -247,11 +262,11 @@ class PoseEnv(gym.Env):
 if __name__ == '__main__':
 
     import gym
-    from stable_baselines3 import PPO
+    from stable_baselines3 import SAC
     env = PoseEnv()
     from stable_baselines3.common.env_checker import check_env
     check_env(env)
-    model = PPO("MlpPolicy", env, verbose=1)
+    model = SAC("MlpPolicy", env, verbose=1)
     model.learn(total_timesteps=100000)
     model.save("./pose_track.pkl")
 
