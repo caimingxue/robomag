@@ -18,9 +18,6 @@ from loguru import logger
 
 class PoseEnv(gym.Env):
     metadata = {"render.modes": ["human", "rgb_array"], "video.frames_per_second": 30}
-
-    # 将会初始化动作空间与状态空间，便于强化学习算法在给定的状态空间中搜索合适的动作
-    # 环境中会用的全局变量可以声明为类（self.）的变量
     def __init__(self):
         # state space: x_diff, y_diff, theta_diff
         self.observation_space = spaces.Box(
@@ -40,11 +37,12 @@ class PoseEnv(gym.Env):
             high=np.array([4., 4., np.pi]),
             dtype=np.float32
         )
+        self.robot_pose_bound = [-4, 4]
 
         self.state = None
         self.current_pose = None
 
-        # self.map_size = np.array([5, 5])
+        self.map_size = np.array([5, 5])
         # self.max_dist_error = np.sqrt(np.sum(self.map_size ** 2))
 
         self.dt = 0.05
@@ -63,10 +61,11 @@ class PoseEnv(gym.Env):
         # Bot position updated here so it must be first!
         next_pose = self.update_state(action)
         # 在这里做一下限定，如果下一个动作导致智能体越过了环境边界（即不在状态空间中），则无视这个动作
-        if self.robot_pose.contains(next_pose):
-            self.current_pose = next_pose
-        else:
-            self.out_border = True
+        # if self.robot_pose.contains(next_pose):
+        #     self.current_pose = next_pose
+        # else:
+        #     self.out_border = True
+        self.current_pose = np.clip(next_pose, *self.robot_pose_bound)
 
         self.x_diff = self.target_pose[0] - self.current_pose[0]
         self.y_diff = self.target_pose[1] - self.current_pose[1]
@@ -88,7 +87,7 @@ class PoseEnv(gym.Env):
         # reward_ctrl = -np.square(action).sum()
         # reward = 3 * reward_dist + reward_ctrl
 
-        reward = -5 * self.dist_error**3 - 2 * abs(self.alpha)
+        reward = -5 * self.dist_error - 2 * abs(self.alpha)
         # # Time penalty
         # reward -= 1
 
@@ -101,7 +100,6 @@ class PoseEnv(gym.Env):
             logger.error("=================== STEP NUM LIMITS =======================")
         elif self.out_border:
             done = True
-            reward -= 1000
             logger.error("************ OUT OF BORDER *****************")
         else:
             done = False
@@ -213,8 +211,8 @@ class PoseEnv(gym.Env):
         angular_vel = action[1]
 
         ## 保持只前进，不后退
-        if self.alpha > np.pi / 2 or self.alpha < -np.pi / 2:
-            vel = -vel
+        # if self.alpha > np.pi / 2 or self.alpha < -np.pi / 2:
+        #     vel = -vel
 
         self.next_pose = np.zeros_like(self.current_pose)
         self.next_pose[2] = self.angle_normalize(current_yaw + angular_vel * self.dt)
@@ -270,7 +268,7 @@ if __name__ == '__main__':
     model.learn(total_timesteps=100000)
     model.save("./pose_track.pkl")
 
-    # model = PPO.load("./pose_track.pkl")
+    model = SAC.load("./pose_track.pkl")
 
     obs = env.reset()
     for i in range(100000):
