@@ -9,6 +9,7 @@
 import gym
 from gym import spaces
 import numpy as np
+from gym.utils import seeding
 from random import random
 from gym.envs.classic_control import rendering
 import time
@@ -21,8 +22,8 @@ class PoseEnv(gym.Env):
     def __init__(self):
         # state space: dist_error, theta_diff
         self.observation_space = spaces.Box(
-            low=np.array([0, -np.pi]),
-            high=np.array([8 * np.sqrt(2), np.pi]),
+            low=np.array([0, -np.pi, 0]),
+            high=np.array([8 * np.sqrt(2), np.pi, 1]),
             dtype=np.float32
         )
         # action space: v, w
@@ -43,29 +44,23 @@ class PoseEnv(gym.Env):
         self.current_pose = None
 
         self.map_size = np.array([5, 5])
-        # self.max_dist_error = np.sqrt(np.sum(self.map_size ** 2))
-
         self.dt = 0.05
         self.goal_reached = 0
-        # self.pre_dist_error = 0.
-        # self.dist_error = 0.
-        # self.delta_dist_error = 0.
 
         self.viewer = None
-        self.out_border = False
         self.reset()
         self.seed()
+
+    def seed(self, seed=None):
+        self.np_random, seed = seeding.np_random(seed)
+        return [seed]
 
     def step(self, action):
         assert self.action_space.contains(action), "%r (%s) invalid" % (action, type(action))
         assert self.observation_space.contains(self.state), "%r (%s) invalid" % (self.state, type(self.state))
         # Bot position updated here so it must be first!
         next_pose = self.update_state(action)
-        # 在这里做一下限定，如果下一个动作导致智能体越过了环境边界（即不在状态空间中），则无视这个动作
-        # if self.robot_pose.contains(next_pose):
-        #     self.current_pose = next_pose
-        # else:
-        #     self.out_border = True
+
         self.current_pose = np.clip(next_pose, *self.robot_pose_bound)
 
         self.x_diff = self.target_pose[0] - self.current_pose[0]
@@ -90,26 +85,22 @@ class PoseEnv(gym.Env):
         # reward_ctrl = -np.square(action).sum()
         # reward = 3 * reward_dist + reward_ctrl
 
-        reward = -1 * self.dist_error - 0.5 * abs(self.angle_normalize(self.alpha - self.beta))
+        reward = -2 * self.dist_error - 0.1 * abs(self.angle_normalize(self.alpha - self.beta))
         # # Time penalty
         # reward -= 1
-
         done = False
         if self.dist_error < 0.02:
-            # self.goal_reached += 1
-            # if self.goal_reached > 10:
+            self.goal_reached += 1
+            if self.goal_reached > 5:
                 done = True
                 logger.warning("################## REACH SUCCESSFULLY #################")
-            # else:
-            #     self.goal_reached = 0
-        elif self.step_num > 10000:
+
+        elif self.step_num > 1000:
             done = True
             logger.error("=================== STEP NUM LIMITS =======================")
         else:
-            done = False
+            self.goal_reached = 0
 
-        # self.delta_dist_error = self.pre_dist_error - self.dist_error
-        # self.pre_dist_error = self.dist_error
         self.step_num += 1
 
         info = {"action": action, "state": self.state, "reward": reward, "done": done}
@@ -117,7 +108,12 @@ class PoseEnv(gym.Env):
 
         self.yaw_diff = self.angle_normalize((self.alpha - self.beta))
 
-        self.state = np.array([self.dist_error, self.yaw_diff], dtype=np.float32)
+        if self.goal_reached:
+            flag = 1
+        else:
+            flag = 0
+
+        self.state = np.array([self.dist_error, self.yaw_diff, flag], dtype=np.float32)
 
         return self.state, reward, done, info
 
@@ -150,9 +146,8 @@ class PoseEnv(gym.Env):
         # clear
         self.step_num = 0
         self.goal_reached = 0
-        self.out_border = False
 
-        self.state = np.array([self.dist_error, self.yaw_diff], dtype=np.float32)
+        self.state = np.array([self.dist_error, self.yaw_diff, 0], dtype=np.float32)
 
         assert self.observation_space.contains(self.state), "%r (%s) invalid" % (self.state, type(self.state))
 
@@ -253,6 +248,7 @@ class PoseEnv(gym.Env):
     def angle_normalize(self, angle):
         return (((angle + np.pi) % (2 * np.pi)) - np.pi)
 
+
     # def get_img(self, obs):
     #     obs = self.obs_to_pixel(obs)
     #     goal = self.obs_to_pixel(self.env.goal)
@@ -275,10 +271,10 @@ if __name__ == '__main__':
     env = PoseEnv()
     from stable_baselines3.common.env_checker import check_env
     check_env(env)
-    # model = DDPG("MlpPolicy", env, verbose=1)
-    model = DDPG.load("./pose_track.pkl", env=env)
-    # model.learn(total_timesteps=100000)
-    # model.save("./pose_track.pkl")
+    model = DDPG("MlpPolicy", env, verbose=1)
+    # model = DDPG.load("./pose_track.pkl", env=env)
+    model.learn(total_timesteps=100000)
+    model.save("./pose_track.pkl")
 
     # model = SAC.load("./pose_track.pkl")
 
